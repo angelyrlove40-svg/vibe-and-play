@@ -1,0 +1,35 @@
+name: Terminal smoke result
+description: Record core-six terminal smoke evidence
+labels: [terminal-smoke]
+body:
+  - type: dropdown
+    id: terminal
+    attributes:
+      label: Terminal target
+      options:
+        - cmux
+        - tmux
+        - Ghostty
+        - iTerm2 (unsupported)
+        - VS Code integrated terminal (pending)
+        - Windows PowerShell (pending)
+        - Windows Terminal / PowerShell split (pending)
+        - Plain terminal fallback
+    validations:
+      required: true
+  - type: checkboxes
+    id: core-six
+    attributes:
+      label: Core-six smoke flow
+      options:
+        - label: Install or local package install completed
+        - label: vibemud init completed
+        - label: vibemud statusline printed correctly
+        - label: mudctl hunt start --area forest-edge --auto-start completed
+        - label: HUD/side pane or documented fallback opened
+        - label: vibemud session stop / cleanup completed
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence and notes
+      description: Include OS, terminal version, shell, install method, and any gaps.

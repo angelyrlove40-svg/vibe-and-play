@@ -1,0 +1,45 @@
+name: Bug report
+description: Report a VibeMUD bug
+labels: [bug]
+body:
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: What happened?
+    validations:
+      required: true
+  - type: dropdown
+    id: environment
+    attributes:
+      label: Terminal environment
+      options:
+        - cmux
+        - tmux
+        - Ghostty
+        - iTerm2 (unsupported)
+        - VS Code integrated terminal (pending)
+        - Windows PowerShell (pending)
+        - Windows Terminal (pending)
+        - Plain terminal fallback
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Reproduction steps
+      description: Include commands such as vibemud init, mudctl hunt, or vibemud session stop.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or screenshots
+      description: Do not paste secrets, prompts, transcripts, source buffers, or private editor content.

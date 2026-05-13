@@ -1,0 +1,90 @@
+# VibeMUD public-source allowlist
+# Default: keep files out of Git unless they are explicitly needed for
+# source build, npm packaging, Claude Code marketplace, release automation,
+# OSS governance, or public support documentation.
+
+*
+!*/
+
+# Root essentials
+!/.gitignore
+!/README.md
+!/LICENSE
+!/CODE_OF_CONDUCT.md
+!/CONTRIBUTING.md
+!/SECURITY.md
+!/Cargo.toml
+!/Cargo.lock
+!/AGENTS.md
+!/CLAUDE.md
+
+
+# README demo assets
+!/assets/**
+
+# Rust workspace source
+!/crates/**
+
+# Claude Code marketplace/plugin source
+!/.claude-plugin/**
+!/claude-marketplace/**
+
+# npm package source and platform package manifests
+!/npm/**
+
+# GitHub OSS/release automation
+!/.github/**
+
+# Supported install scripts only
+!/scripts/install.sh
+!/scripts/install.ps1
+!/scripts/install-claude-plugin.sh
+!/scripts/uninstall-claude-plugin.sh
+
+# Always keep generated/local/runtime material out
+/target/
+/dist/
+/coverage/
+/artifacts/
+*.tgz
+npm-debug.log*
+*.log
+
+# Local VibeMUD runtime state
+/vibemud.db
+/vibemud.db-shm
+/vibemud.db-wal
+/config.toml
+/panel-pane
+/*.db
+/*.db-shm
+/*.db-wal
+/logs/
+/backups/
+
+# Local terminal helper output/state
+/cmux-*.sh
+/ghostty-*.sh
+
+# Local orchestration/editor/agent state
+/.omx/
+/.omc/
+/.claude/
+/.agents/
+/_bmad/
+/.codex/
+/codex/
+/tasks/
+/skills-lock.json
+
+# Documentation is kept out of the public minimal source package.
+# Public instructions live in README.md, CONTRIBUTING.md, SECURITY.md,
+# AGENTS.md, and CLAUDE.md.
+/docs/
+
+# OS/editor noise
+.DS_Store
+*.swp
+*.tmp
+__pycache__/
+*.pyc
