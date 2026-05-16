@@ -103,6 +103,21 @@ jobs:
           registry-url: 'https://registry.npmjs.org'
       - name: Ensure npm trusted-publishing capable CLI
         run: npm install -g npm@^11.5.1
+      - name: Configure npm token bootstrap when provided
+        shell: bash
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${NODE_AUTH_TOKEN:-}" ]; then
+            echo "::notice::NPM_TOKEN secret is not configured; npm publish will use trusted publishing/OIDC."
+            exit 0
+          fi
+          npmrc="${NPM_CONFIG_USERCONFIG:-$RUNNER_TEMP/.npmrc}"
+          printf '//registry.npmjs.org/:_authToken=%s\n' "$NODE_AUTH_TOKEN" > "$npmrc"
+          chmod 0600 "$npmrc"
+          echo "NPM_CONFIG_USERCONFIG=$npmrc" >> "$GITHUB_ENV"
+
       - name: Download promoted package artifacts
         uses: actions/download-artifact@v4
         with:
@@ -134,6 +149,8 @@ jobs:
           done
       - name: Publish optional packages first, then root package
         shell: bash
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           set -euo pipefail
           shopt -s nullglob
