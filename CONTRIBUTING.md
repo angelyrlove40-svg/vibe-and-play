@@ -10,6 +10,14 @@ Thanks for helping make VibeMUD a better local sidecar RPG for developer termina
 - Do not add `~mud` command routing. Supported Claude commands are `/mud` and `/vibemud:mud`.
 - Native Windows support must not depend on WSL, Bash, or tmux.
 
+
+## Current public support boundary
+
+- User-facing quick start is Claude Code only: `/vibemud:mud ...`.
+- Verified pane targets are tmux, cmux, and macOS Ghostty.
+- Codex and iTerm2 are unsupported until fresh smoke evidence and maintainer approval change the public claim.
+- npm `latest` is `vibemud@0.1.25` as of 2026-05-16; repo package source is the `0.1.26` multi-platform candidate.
+
 ## Local checks
 
 Run the smallest relevant checks for your change. For CLI/plugin changes, start with:

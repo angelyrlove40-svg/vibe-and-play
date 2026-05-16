@@ -16,10 +16,10 @@ List tested environments or mark not applicable:
 - [ ] cmux
 - [ ] tmux
 - [ ] Ghostty
-- [ ] iTerm2
-- [ ] VS Code integrated terminal
-- [ ] Windows PowerShell
-- [ ] Windows Terminal
+- [ ] iTerm2 (unsupported unless this PR includes approved smoke evidence)
+- [ ] VS Code integrated terminal (pending)
+- [ ] Windows PowerShell (pending)
+- [ ] Windows Terminal (pending)
 - [ ] Plain terminal fallback
 
 ## Release/privacy checklist

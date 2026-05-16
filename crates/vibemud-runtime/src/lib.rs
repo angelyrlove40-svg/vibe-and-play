@@ -46,7 +46,7 @@ pub fn start_runtime(ticks: Option<u32>) -> Result<()> {
     let _guard = RuntimeProcessGuard::acquire(&paths.root)?;
     if session_status(&conn)? == "running" {
         let info = vibemud_db::session_info(&conn)?;
-        if info.runtime_pid.is_some_and(pid_is_running) {
+        if info.runtime_pid.is_some_and(runtime_pid_is_vibemud) {
             anyhow::bail!(
                 "VibeMUD runtime is already running{}",
                 info.runtime_pid
@@ -106,7 +106,7 @@ impl RuntimeProcessGuard {
                     let existing_pid = fs::read_to_string(&path)
                         .ok()
                         .and_then(|value| value.trim().parse::<i64>().ok());
-                    if existing_pid.is_some_and(pid_is_running) {
+                    if existing_pid.is_some_and(runtime_pid_is_vibemud) {
                         anyhow::bail!(
                             "VibeMUD runtime is already running{}",
                             existing_pid
@@ -139,10 +139,21 @@ impl Drop for RuntimeProcessGuard {
 pub fn stop_runtime() -> Result<()> {
     let (paths, conn) = vibemud_db::open_app()?;
     let runtime_pid = vibemud_db::session_info(&conn)?.runtime_pid;
+    let lock_pid = runtime_lock_pid(&paths.root);
+    let mut pids = Vec::new();
+    if let Some(pid) = runtime_pid {
+        pids.push(pid);
+    }
+    if let Some(pid) = lock_pid {
+        pids.push(pid);
+    }
+    pids.sort_unstable();
+    pids.dedup();
+
     set_session_status(&conn, "stopped", None)?;
     append_event(&conn, EventKind::SessionStopped, "Session stopped", None)?;
     write_snapshot_and_hud(&conn)?;
-    if let Some(pid) = runtime_pid {
+    for pid in pids {
         terminate_runtime_pid(pid);
         remove_runtime_lock_for_pid(&paths.root, pid);
     }
@@ -152,25 +163,86 @@ pub fn stop_runtime() -> Result<()> {
 pub fn status_runtime() -> Result<String> {
     let (paths, conn) = vibemud_db::open_app()?;
     let status = session_status(&conn)?;
+    let info = vibemud_db::session_info(&conn)?;
     if status == "running" {
-        let info = vibemud_db::session_info(&conn)?;
-        if !info.runtime_pid.is_some_and(pid_is_running) {
+        if !info.runtime_pid.is_some_and(runtime_pid_is_vibemud) {
+            if let Some(pid) =
+                runtime_lock_pid(&paths.root).filter(|pid| runtime_pid_is_vibemud(*pid))
+            {
+                set_session_status(&conn, "running", Some(pid as u32))?;
+                return Ok("running".to_string());
+            }
             set_session_status(&conn, "stopped", None)?;
             if let Some(pid) = info.runtime_pid {
                 remove_runtime_lock_for_pid(&paths.root, pid);
             }
             return Ok("stopped".to_string());
         }
+    } else if let Some(pid) = runtime_lock_pid(&paths.root) {
+        if runtime_pid_is_vibemud(pid) {
+            set_session_status(&conn, "running", Some(pid as u32))?;
+            return Ok("running".to_string());
+        }
+        remove_runtime_lock_for_pid(&paths.root, pid);
     }
     Ok(status)
 }
 
+fn runtime_pid_is_vibemud(pid: i64) -> bool {
+    pid > 0 && pid_is_running(pid) && runtime_pid_matches_binary(pid)
+}
+
+#[cfg(unix)]
+fn runtime_pid_matches_binary(pid: i64) -> bool {
+    std::process::Command::new("ps")
+        .args(["-p", &pid.to_string(), "-o", "command="])
+        .output()
+        .map(|output| {
+            output.status.success()
+                && runtime_command_is_vibemud(&String::from_utf8_lossy(&output.stdout))
+        })
+        .unwrap_or(false)
+}
+
+fn runtime_command_is_vibemud(command: &str) -> bool {
+    command
+        .split_whitespace()
+        .next()
+        .and_then(|argv0| Path::new(argv0.trim_matches('"')).file_name())
+        .and_then(|name| name.to_str())
+        .is_some_and(|name| name == "vibemud-runtime" || name == "vibemud-runtime.exe")
+}
+
+#[cfg(windows)]
+fn runtime_pid_matches_binary(pid: i64) -> bool {
+    std::process::Command::new("tasklist")
+        .args(["/FI", &format!("PID eq {pid}"), "/FO", "CSV", "/NH"])
+        .output()
+        .map(|output| {
+            output.status.success()
+                && String::from_utf8_lossy(&output.stdout).lines().any(|line| {
+                    line.to_ascii_lowercase()
+                        .starts_with("\"vibemud-runtime.exe\"")
+                })
+        })
+        .unwrap_or(false)
+}
+
+#[cfg(not(any(unix, windows)))]
+fn runtime_pid_matches_binary(_pid: i64) -> bool {
+    true
+}
+
+fn runtime_lock_pid(root: &Path) -> Option<i64> {
+    fs::read_to_string(root.join(RUNTIME_LOCK_FILE))
+        .ok()
+        .and_then(|value| value.trim().parse::<i64>().ok())
+}
+
 fn remove_runtime_lock_for_pid(root: &Path, pid: i64) {
     let path = root.join(RUNTIME_LOCK_FILE);
-    let lock_pid = fs::read_to_string(&path)
-        .ok()
-        .and_then(|value| value.trim().parse::<i64>().ok());
-    if lock_pid == Some(pid) && !pid_is_running(pid) {
+    let lock_pid = runtime_lock_pid(root);
+    if lock_pid == Some(pid) && !runtime_pid_is_vibemud(pid) {
         let _ = fs::remove_file(path);
     }
 }
@@ -226,7 +298,7 @@ fn pid_is_running(pid: i64) -> bool {
 
 #[cfg(unix)]
 fn terminate_runtime_pid(pid: i64) {
-    if pid <= 0 || pid as u32 == std::process::id() || !pid_is_running(pid) {
+    if pid <= 0 || pid as u32 == std::process::id() || !runtime_pid_is_vibemud(pid) {
         return;
     }
 
@@ -256,7 +328,7 @@ fn terminate_runtime_pid(pid: i64) {
 
 #[cfg(windows)]
 fn terminate_runtime_pid(pid: i64) {
-    if pid <= 0 || pid as u32 == std::process::id() || !pid_is_running(pid) {
+    if pid <= 0 || pid as u32 == std::process::id() || !runtime_pid_is_vibemud(pid) {
         return;
     }
 
@@ -2199,6 +2271,20 @@ mod tests {
     }
 
     #[cfg(unix)]
+    fn spawn_fake_runtime(root: &Path) -> std::process::Child {
+        let runtime_path = root.join("vibemud-runtime");
+        let _ = std::fs::remove_file(&runtime_path);
+        std::os::unix::fs::symlink("/bin/sleep", &runtime_path).unwrap();
+        std::process::Command::new(runtime_path)
+            .arg("30")
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .unwrap()
+    }
+
+    #[cfg(unix)]
     #[test]
     fn runtime_lock_rejects_live_pid_and_replaces_stale_pid() {
         let _guard = test_lock();
@@ -2207,8 +2293,11 @@ mod tests {
         let paths = vibemud_db::init_app().unwrap();
         let lock_path = paths.root.join(RUNTIME_LOCK_FILE);
 
-        std::fs::write(&lock_path, std::process::id().to_string()).unwrap();
+        let mut runtime = spawn_fake_runtime(tmp.path());
+        std::fs::write(&lock_path, runtime.id().to_string()).unwrap();
         assert!(RuntimeProcessGuard::acquire(&paths.root).is_err());
+        let _ = runtime.kill();
+        let _ = runtime.wait();
 
         std::fs::write(&lock_path, "999999999").unwrap();
         let guard = RuntimeProcessGuard::acquire(&paths.root).unwrap();
@@ -2228,13 +2317,7 @@ mod tests {
         std::env::set_var("VIBEMUD_HOME", tmp.path());
         vibemud_db::init_app().unwrap();
         let (paths, conn) = vibemud_db::open_app().unwrap();
-        let mut child = std::process::Command::new("sleep")
-            .arg("30")
-            .stdin(std::process::Stdio::null())
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .spawn()
-            .unwrap();
+        let mut child = spawn_fake_runtime(tmp.path());
         vibemud_db::set_session_status(&conn, "running", Some(child.id())).unwrap();
         std::fs::write(paths.root.join(RUNTIME_LOCK_FILE), child.id().to_string()).unwrap();
 
@@ -2252,6 +2335,117 @@ mod tests {
         }
         let _ = child.kill();
         panic!("recorded runtime pid was not terminated");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn stop_runtime_terminates_lock_only_runtime_pid() {
+        let _guard = test_lock();
+        let tmp = tempfile::tempdir().unwrap();
+        std::env::set_var("VIBEMUD_HOME", tmp.path());
+        let paths = vibemud_db::init_app().unwrap();
+        let mut child = spawn_fake_runtime(tmp.path());
+        std::fs::write(paths.root.join(RUNTIME_LOCK_FILE), child.id().to_string()).unwrap();
+
+        assert_eq!(status_runtime().unwrap(), "running");
+        stop_runtime().unwrap();
+
+        for _ in 0..20 {
+            if child.try_wait().unwrap().is_some() {
+                assert!(
+                    !paths.root.join(RUNTIME_LOCK_FILE).exists(),
+                    "runtime lock should be removed after stopping the lock-only pid"
+                );
+                return;
+            }
+            thread::sleep(StdDuration::from_millis(100));
+        }
+        let _ = child.kill();
+        panic!("lock-only runtime pid was not terminated");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn status_runtime_recovers_lock_pid_when_db_pid_is_stale() {
+        let _guard = test_lock();
+        let tmp = tempfile::tempdir().unwrap();
+        std::env::set_var("VIBEMUD_HOME", tmp.path());
+        let paths = vibemud_db::init_app().unwrap();
+        let (_paths, conn) = vibemud_db::open_app().unwrap();
+        let mut child = spawn_fake_runtime(tmp.path());
+        vibemud_db::set_session_status(&conn, "running", Some(999999999)).unwrap();
+        std::fs::write(paths.root.join(RUNTIME_LOCK_FILE), child.id().to_string()).unwrap();
+
+        assert_eq!(status_runtime().unwrap(), "running");
+        assert_eq!(
+            vibemud_db::session_info(&conn).unwrap().runtime_pid,
+            Some(child.id() as i64)
+        );
+
+        stop_runtime().unwrap();
+        let _ = child.wait();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn stop_runtime_does_not_terminate_unrelated_lock_pid() {
+        let _guard = test_lock();
+        let tmp = tempfile::tempdir().unwrap();
+        std::env::set_var("VIBEMUD_HOME", tmp.path());
+        vibemud_db::init_app().unwrap();
+        let (paths, conn) = vibemud_db::open_app().unwrap();
+        let mut child = std::process::Command::new("sleep")
+            .arg("30")
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .unwrap();
+        vibemud_db::set_session_status(&conn, "running", Some(child.id())).unwrap();
+        std::fs::write(paths.root.join(RUNTIME_LOCK_FILE), child.id().to_string()).unwrap();
+
+        assert_eq!(status_runtime().unwrap(), "stopped");
+        stop_runtime().unwrap();
+        assert!(
+            child.try_wait().unwrap().is_none(),
+            "plain sleep process must not be terminated from a stale runtime.lock"
+        );
+        assert!(
+            !paths.root.join(RUNTIME_LOCK_FILE).exists(),
+            "stale runtime lock should be removed without killing unrelated pid"
+        );
+
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn stop_runtime_does_not_match_runtime_substrings_in_unrelated_commands() {
+        let _guard = test_lock();
+        let tmp = tempfile::tempdir().unwrap();
+        std::env::set_var("VIBEMUD_HOME", tmp.path());
+        vibemud_db::init_app().unwrap();
+        let (paths, conn) = vibemud_db::open_app().unwrap();
+        let mut child = std::process::Command::new("bash")
+            .args(["-c", "sleep 30 # vibemud-runtime-marker"])
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .unwrap();
+        vibemud_db::set_session_status(&conn, "running", Some(child.id())).unwrap();
+        std::fs::write(paths.root.join(RUNTIME_LOCK_FILE), child.id().to_string()).unwrap();
+
+        stop_runtime().unwrap();
+        assert!(
+            child.try_wait().unwrap().is_none(),
+            "commands merely containing vibemud-runtime must not be killed"
+        );
+        assert!(!paths.root.join(RUNTIME_LOCK_FILE).exists());
+
+        let _ = child.kill();
+        let _ = child.wait();
     }
 
     #[test]

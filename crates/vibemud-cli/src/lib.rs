@@ -535,13 +535,18 @@ fn start_background_runtime(ticks: Option<u32>) -> Result<u32> {
             .runtime_pid
             .is_some_and(|runtime_pid| runtime_pid != pid as i64 && pid_is_running(runtime_pid))
         {
-            let _ = child.kill();
-            anyhow::bail!(
-                "VibeMUD runtime is already running{}",
-                info.runtime_pid
-                    .map(|runtime_pid| format!(" pid={runtime_pid}"))
-                    .unwrap_or_default()
-            );
+            let status = vibemud_runtime::status_runtime()?;
+            let refreshed = vibemud_db::session_info(&conn)?;
+            if status == "running" && refreshed.runtime_pid != Some(pid as i64) {
+                let _ = child.kill();
+                anyhow::bail!(
+                    "VibeMUD runtime is already running{}",
+                    refreshed
+                        .runtime_pid
+                        .map(|runtime_pid| format!(" pid={runtime_pid}"))
+                        .unwrap_or_default()
+                );
+            }
         }
 
         if Instant::now() >= deadline {
@@ -568,16 +573,8 @@ fn detach_background_command(command: &mut Command) {
 #[cfg(not(unix))]
 fn detach_background_command(_command: &mut Command) {}
 
-fn effective_runtime_status(conn: &rusqlite::Connection) -> Result<String> {
-    let status = vibemud_db::session_status(conn)?;
-    if status == "running" {
-        let info = vibemud_db::session_info(conn)?;
-        if !info.runtime_pid.is_some_and(pid_is_running) {
-            vibemud_db::set_session_status(conn, "stopped", None)?;
-            return Ok("stopped".to_string());
-        }
-    }
-    Ok(status)
+fn effective_runtime_status(_conn: &rusqlite::Connection) -> Result<String> {
+    vibemud_runtime::status_runtime()
 }
 
 #[cfg(unix)]
@@ -661,33 +658,61 @@ fn cleanup_hud_processes() -> Result<()> {
 
 fn cleanup_hud_processes_in_root(root: &Path) -> Result<()> {
     let dir = hud_pid_dir(root);
-    if !dir.exists() {
-        return Ok(());
-    }
-    for entry in std::fs::read_dir(&dir)? {
-        let entry = entry?;
-        let path = entry.path();
-        let pid = std::fs::read_to_string(&path)
-            .ok()
-            .and_then(|value| value.trim().parse::<i64>().ok());
-        match pid {
-            Some(pid) if hud_pid_is_safe_to_stop(pid) => {
-                terminate_hud_pid(pid);
-                if !pid_is_running(pid) {
+    if dir.exists() {
+        for entry in std::fs::read_dir(&dir)? {
+            let entry = entry?;
+            let path = entry.path();
+            let pid = std::fs::read_to_string(&path)
+                .ok()
+                .and_then(|value| value.trim().parse::<i64>().ok());
+            match pid {
+                Some(pid) if hud_pid_is_safe_to_stop(pid) => {
+                    terminate_hud_pid(pid);
+                    if !pid_is_running(pid) {
+                        let _ = std::fs::remove_file(&path);
+                    }
+                }
+                Some(pid) if !pid_is_running(pid) => {
                     let _ = std::fs::remove_file(&path);
                 }
+                None => {
+                    let _ = std::fs::remove_file(&path);
+                }
+                _ => {}
             }
-            Some(pid) if !pid_is_running(pid) => {
-                let _ = std::fs::remove_file(&path);
-            }
-            None => {
-                let _ = std::fs::remove_file(&path);
-            }
-            _ => {}
         }
+        let _ = std::fs::remove_dir(&dir);
     }
-    let _ = std::fs::remove_dir(&dir);
+
     Ok(())
+}
+
+fn hud_command_is_safe_to_stop(command: &str) -> bool {
+    let tokens = command.split_whitespace().collect::<Vec<_>>();
+    let Some(first) = tokens.first() else {
+        return false;
+    };
+    if token_basename_is(first, &["vibemud-hud", "vibemud-hud.exe"]) {
+        return true;
+    }
+    if token_basename_is(first, &["vibemud", "vibemud.exe", "vibemud.js"])
+        && tokens.get(1).is_some_and(|arg| *arg == "hud")
+    {
+        return true;
+    }
+    token_basename_is(first, &["node", "node.exe"])
+        && tokens
+            .get(1)
+            .is_some_and(|arg| token_basename_is(arg, &["vibemud", "vibemud.exe", "vibemud.js"]))
+        && tokens.get(2).is_some_and(|arg| *arg == "hud")
+}
+
+fn token_basename_is(token: &str, allowed: &[&str]) -> bool {
+    let token = token.trim_matches('"');
+    Path::new(token)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .is_some_and(|name| allowed.iter().any(|allowed| name == *allowed))
 }
 
 #[cfg(unix)]
@@ -703,14 +728,28 @@ fn hud_pid_is_safe_to_stop(pid: i64) -> bool {
                 return false;
             }
             let command = String::from_utf8_lossy(&output.stdout);
-            command.contains("vibemud") && command.contains("hud")
+            hud_command_is_safe_to_stop(&command)
         })
         .unwrap_or(false)
 }
 
 #[cfg(windows)]
 fn hud_pid_is_safe_to_stop(pid: i64) -> bool {
-    pid > 0 && pid as u32 != std::process::id() && pid_is_running(pid)
+    if pid <= 0 || pid as u32 == std::process::id() || !pid_is_running(pid) {
+        return false;
+    }
+    Command::new("powershell")
+        .args([
+            "-NoProfile",
+            "-Command",
+            &format!("(Get-CimInstance Win32_Process -Filter \"ProcessId={pid}\").CommandLine"),
+        ])
+        .output()
+        .map(|output| {
+            output.status.success()
+                && hud_command_is_safe_to_stop(&String::from_utf8_lossy(&output.stdout))
+        })
+        .unwrap_or(false)
 }
 
 #[cfg(not(any(unix, windows)))]
@@ -6468,6 +6507,25 @@ mod tests {
             .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn hud_command_detection_catches_native_and_node_wrappers_only() {
+        assert!(hud_command_is_safe_to_stop(
+            "/path/to/vibemud hud --panel --refresh 1"
+        ));
+        assert!(hud_command_is_safe_to_stop(
+            "node /prefix/bin/vibemud.js hud --panel --refresh 1"
+        ));
+        assert!(hud_command_is_safe_to_stop(
+            "/path/to/vibemud-hud --panel --refresh 1"
+        ));
+        assert!(!hud_command_is_safe_to_stop("vibemud session stop"));
+        assert!(!hud_command_is_safe_to_stop("rg vibemud"));
+        assert!(!hud_command_is_safe_to_stop(
+            "bash -c sleep 30 # vibemud hud marker"
+        ));
+    }
+
     #[test]
     fn hud_process_guard_registers_and_removes_pid_file() {
         let tmp = tempfile::tempdir().unwrap();
@@ -6639,6 +6697,63 @@ mod tests {
         assert_eq!(
             normalize_mudctl_argv(vec!["mudctl".into(), "a".into()]),
             vec!["mudctl", "hunt", "start"]
+        );
+    }
+
+    #[test]
+    fn plugin_cmux_panel_avoids_destructive_respawn_and_empty_launcher() {
+        let script_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../claude-marketplace/plugins/vibemud/scripts/vibemud-claude.sh");
+        let script = std::fs::read_to_string(&script_path)
+            .unwrap_or_else(|err| panic!("failed to read {}: {err}", script_path.display()));
+
+        assert!(
+            script.contains("cmux_current_surface()"),
+            "cmux launcher must know the current surface before sending commands"
+        );
+        assert!(
+            script.contains("Refusing to run VibeMUD HUD command on the current cmux surface"),
+            "cmux launcher must refuse to target the user's active pane"
+        );
+        assert!(
+            script.contains(r#"cmux_send_shell_command "$cli" "$surface" "$command""#),
+            "cmux launcher should send into the fresh pane instead of respawning surfaces"
+        );
+        assert!(
+            !script.contains("respawn-pane --surface"),
+            "cmux launcher must not use respawn-pane because stale refs can blank the coding pane"
+        );
+        assert!(
+            !script.contains(r#"shell_quote "$(resolve_binary vibemud)""#),
+            "binary resolution failures must not become an empty exec target"
+        );
+        assert!(
+            script.contains("close_cmux_surface_if_vibemud()"),
+            "cmux cleanup must verify VibeMUD content before closing recorded surfaces"
+        );
+        let close_start = script
+            .find("close_cmux_panel()")
+            .expect("cmux close function exists");
+        let close_tail = &script[close_start..];
+        let close_end = close_tail
+            .find("\npane_exists()")
+            .expect("cmux close function has pane_exists boundary");
+        let close_function = &close_tail[..close_end];
+        assert!(
+            close_function.contains("close_cmux_surface_if_vibemud"),
+            "cmux stop must route through verified VibeMUD surface cleanup"
+        );
+        assert!(
+            !close_function.contains("close-surface --surface"),
+            "cmux stop must not blindly close stale recorded surfaces"
+        );
+        assert!(
+            script.contains("kill_tmux_pane_if_vibemud()"),
+            "tmux cleanup must verify VibeMUD content before killing recorded panes"
+        );
+        assert!(
+            !script.contains(r#"tmux kill-pane -t "$existing""#),
+            "tmux selectors must not blindly kill stale recorded panes"
         );
     }
 
