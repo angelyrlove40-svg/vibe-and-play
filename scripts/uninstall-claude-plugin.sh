@@ -110,6 +110,24 @@ sys.exit(0 if any(item.get("name") == name for item in data) else 1)
 ' "$marketplace_name"
 }
 
+stop_vibemud_runtime() {
+  local vibemud_bin=""
+  if [[ -x "${shim_dir}/vibemud" ]]; then
+    vibemud_bin="${shim_dir}/vibemud"
+  elif command -v vibemud >/dev/null 2>&1; then
+    vibemud_bin="$(command -v vibemud)"
+  fi
+
+  if [[ -n "$vibemud_bin" ]]; then
+    echo "==> Stopping VibeMUD runtime/HUD helpers if running"
+    "$vibemud_bin" session stop >/dev/null 2>&1 || true
+  else
+    echo "==> VibeMUD binary not found; skipping runtime stop"
+  fi
+}
+
+stop_vibemud_runtime
+
 if plugin_installed; then
   args=("plugin" "uninstall" "$plugin_id" "--scope" "$scope")
   if [[ "$keep_data" == "1" ]]; then

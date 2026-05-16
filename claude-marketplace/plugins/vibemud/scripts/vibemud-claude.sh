@@ -574,7 +574,7 @@ stop_terminal_broadcast() {
 }
 
 start_terminal_broadcast() {
-  local tty_path pid_file existing home_dir quoted_path quoted_home quoted_vibemud rows cols lines panel_cmd
+  local tty_path pid_file existing home_dir quoted_path quoted_home vibemud_bin quoted_vibemud rows cols lines panel_cmd
   tty_path="$(detect_visible_tty || true)"
   if [[ -z "$tty_path" || ! -w "$tty_path" ]]; then
     return 1
@@ -593,8 +593,10 @@ start_terminal_broadcast() {
   lines="$(message_printline)"
   quoted_path="$(shell_quote "$PATH")"
   quoted_home="$(shell_quote "$home_dir")"
-  quoted_vibemud="$(shell_quote "$(resolve_binary vibemud)")" || return 1
-  panel_cmd="export PATH=$quoted_path; export VIBEMUD_HOME=$quoted_home; export VIBEMUD_PANEL_HEIGHT=${rows}; export VIBEMUD_PANEL_WIDTH=${cols}; printf '\033]2;VibeMUD HUD\033\\' > '$tty_path'; exec $quoted_vibemud hud --panel --refresh 1 --log-lines ${lines} > '$tty_path' 2>&1"
+  vibemud_bin="$(resolve_binary vibemud)" || return 1
+  [[ -n "$vibemud_bin" ]] || return 1
+  quoted_vibemud="$(shell_quote "$vibemud_bin")"
+  panel_cmd="export PATH=$quoted_path; export VIBEMUD_HOME=$quoted_home; export VIBEMUD_PANEL_HEIGHT=${rows}; export VIBEMUD_PANEL_WIDTH=${cols}; printf '\033]2;VibeMUD HUD\033\\' > '$tty_path'; echo 'Starting VibeMUD HUD...' > '$tty_path'; exec $quoted_vibemud hud --panel --refresh 1 --log-lines ${lines} > '$tty_path' 2>&1"
   nohup bash -lc "$panel_cmd" >/dev/null 2>&1 &
   printf '%s\n' "$!" > "$pid_file"
   echo "VibeMUD terminal HUD broadcast started on ${tty_path} (pid $!)."
@@ -630,7 +632,39 @@ cmux_surface_has_hud() {
   local screen
   [[ -n "$surface" ]] || return 1
   screen="$("$cli" read-screen --surface "$surface" --lines 16 2>/dev/null || true)"
-  printf '%s\n' "$screen" | grep -Eq 'VibeMUD|AUTO-HUNT|GAME / AUTO-HUNT|상세 능력치|자동 사냥'
+  printf '%s\n' "$screen" | grep -Eq 'VibeMUD|AUTO-HUNT|GAME / AUTO-HUNT|상세 능력치|자동 사냥|DAILY QUESTS|일일 퀘스트'
+}
+
+close_cmux_surface_if_vibemud() {
+  local cli="$1"
+  local surface="$2"
+  local current_surface
+  [[ -n "$surface" ]] || return 0
+  cmux_surface_alive "$cli" "$surface" || return 0
+  current_surface="$(cmux_current_surface || true)"
+  if cmux_same_surface "$surface" "$current_surface"; then
+    return 0
+  fi
+  if cmux_surface_has_hud "$cli" "$surface"; then
+    "$cli" close-surface --surface "$surface" >/dev/null 2>&1 || true
+  fi
+}
+
+cmux_current_surface() {
+  if [[ -n "${CMUX_SURFACE_ID:-}" ]]; then
+    printf '%s\n' "${CMUX_SURFACE_ID}"
+    return 0
+  fi
+  local cli output
+  cli="$(cmux_cli)"
+  [[ -n "$cli" ]] || return 1
+  output="$("$cli" identify 2>/dev/null || true)"
+  printf '%s\n' "$output" | grep -Eo 'surface:[0-9]+|[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}' | tail -1
+}
+
+cmux_same_surface() {
+  local left="${1:-}" right="${2:-}"
+  [[ -n "$left" && -n "$right" && "$left" == "$right" ]]
 }
 
 cmux_exec_command() {
@@ -644,19 +678,22 @@ cmux_exec_command() {
 
 write_cmux_panel_launcher() {
   local launcher="$1"
-  local home_dir quoted_path quoted_home quoted_vibemud lines
+  local home_dir quoted_path quoted_home vibemud_bin quoted_vibemud lines
   home_dir="$(vibemud_home_dir)"
   mkdir -p "$(dirname "$launcher")"
   quoted_path="$(shell_quote "$PATH")"
   quoted_home="$(shell_quote "$home_dir")"
-  quoted_vibemud="$(shell_quote "$(resolve_binary vibemud)")" || return 1
+  vibemud_bin="$(resolve_binary vibemud)" || return 1
+  [[ -n "$vibemud_bin" ]] || return 1
+  quoted_vibemud="$(shell_quote "$vibemud_bin")"
   lines="$(message_printline)"
   cat > "$launcher" <<LAUNCHER
 #!/usr/bin/env bash
 set -euo pipefail
 export PATH=$quoted_path
 export VIBEMUD_HOME=$quoted_home
-printf '\\033]2;VibeMUD HUD\\033\\\\'
+printf '\033]2;VibeMUD HUD\033\\'
+echo 'Starting VibeMUD HUD...'
 exec $quoted_vibemud hud --panel --refresh 1 --log-lines $lines
 LAUNCHER
   chmod +x "$launcher"
@@ -664,19 +701,22 @@ LAUNCHER
 
 write_ghostty_panel_launcher() {
   local launcher="$1"
-  local home_dir quoted_path quoted_home quoted_vibemud lines
+  local home_dir quoted_path quoted_home vibemud_bin quoted_vibemud lines
   home_dir="$(vibemud_home_dir)"
   mkdir -p "$(dirname "$launcher")"
   quoted_path="$(shell_quote "$PATH")"
   quoted_home="$(shell_quote "$home_dir")"
-  quoted_vibemud="$(shell_quote "$(resolve_binary vibemud)")" || return 1
+  vibemud_bin="$(resolve_binary vibemud)" || return 1
+  [[ -n "$vibemud_bin" ]] || return 1
+  quoted_vibemud="$(shell_quote "$vibemud_bin")"
   lines="$(message_printline)"
   cat > "$launcher" <<LAUNCHER
 #!/usr/bin/env bash
 set -euo pipefail
 export PATH=$quoted_path
 export VIBEMUD_HOME=$quoted_home
-printf '\\033]2;VibeMUD HUD\\033\\\\'
+printf '\033]2;VibeMUD HUD\033\\'
+echo 'Starting VibeMUD HUD...'
 exec $quoted_vibemud hud --panel --refresh 1 --log-lines $lines
 LAUNCHER
   chmod +x "$launcher"
@@ -863,9 +903,15 @@ cmux_respawn_or_send() {
   local cli="$1"
   local surface="$2"
   local command="$3"
-  if "$cli" respawn-pane --surface "$surface" --command "$command" >/dev/null 2>&1; then
-    return 0
+  local current_surface
+  current_surface="$(cmux_current_surface || true)"
+  if cmux_same_surface "$surface" "$current_surface"; then
+    echo "Refusing to run VibeMUD HUD command on the current cmux surface ($surface)." >&2
+    return 1
   fi
+  # Do not use cmux respawn-pane here. A bad or stale surface ref can respawn
+  # the user's active coding pane, blanking their terminal. Sending into the
+  # freshly-created pane is slower but non-destructive.
   cmux_send_shell_command "$cli" "$surface" "$command"
 }
 
@@ -913,14 +959,16 @@ open_cmux_panel() {
       echo "VibeMUD HUD is already running in cmux surface ${existing}."
       return 0
     fi
-    "$cli" close-surface --surface "$existing" >/dev/null 2>&1 || true
+    # The state file may be stale or polluted. Never close a surface unless it
+    # is positively identified as a VibeMUD HUD; otherwise this can blank the
+    # user's current coding pane.
     rm -f "$state_file"
   fi
 
   launcher="$(cmux_panel_launcher)"
-  write_cmux_panel_launcher "$launcher"
+  write_cmux_panel_launcher "$launcher" || return 1
   panel_cmd="$(cmux_exec_command "$launcher")"
-  original_surface="${CMUX_SURFACE_ID:-${CMUX_TAB_ID:-}}"
+  original_surface="$(cmux_current_surface || true)"
 
   output="$("$cli" --id-format both new-pane --direction right 2>&1)" || {
     echo "$output" >&2
@@ -962,7 +1010,7 @@ open_cmux_map_selector_pane() {
   state_file="$(cmux_panel_state_file)"
   existing="$(cat "$state_file" 2>/dev/null || true)"
   if cmux_surface_alive "$cli" "$existing"; then
-    "$cli" close-surface --surface "$existing" >/dev/null 2>&1 || true
+    close_cmux_surface_if_vibemud "$cli" "$existing"
     rm -f "$state_file"
   fi
 
@@ -1004,7 +1052,7 @@ open_cmux_stats_selector_pane() {
   state_file="$(cmux_panel_state_file)"
   existing="$(cat "$state_file" 2>/dev/null || true)"
   if cmux_surface_alive "$cli" "$existing"; then
-    "$cli" close-surface --surface "$existing" >/dev/null 2>&1 || true
+    close_cmux_surface_if_vibemud "$cli" "$existing"
     rm -f "$state_file"
   fi
 
@@ -1046,7 +1094,7 @@ open_cmux_settings_selector_pane() {
   state_file="$(cmux_panel_state_file)"
   existing="$(cat "$state_file" 2>/dev/null || true)"
   if cmux_surface_alive "$cli" "$existing"; then
-    "$cli" close-surface --surface "$existing" >/dev/null 2>&1 || true
+    close_cmux_surface_if_vibemud "$cli" "$existing"
     rm -f "$state_file"
   fi
 
@@ -1088,7 +1136,7 @@ open_cmux_quest_selector_pane() {
   state_file="$(cmux_panel_state_file)"
   existing="$(cat "$state_file" 2>/dev/null || true)"
   if cmux_surface_alive "$cli" "$existing"; then
-    "$cli" close-surface --surface "$existing" >/dev/null 2>&1 || true
+    close_cmux_surface_if_vibemud "$cli" "$existing"
     rm -f "$state_file"
   fi
 
@@ -1125,15 +1173,11 @@ close_cmux_panel() {
   [[ -n "$cli" ]] || return 0
   state_file="$(cmux_panel_state_file)"
   surface="$(cat "$state_file" 2>/dev/null || true)"
-  if cmux_surface_alive "$cli" "$surface"; then
-    "$cli" close-surface --surface "$surface" >/dev/null 2>&1 || true
-  fi
+  close_cmux_surface_if_vibemud "$cli" "$surface"
   rm -f "$state_file"
   quest_state_file="$(cmux_quest_state_file)"
   quest_surface="$(cat "$quest_state_file" 2>/dev/null || true)"
-  if cmux_surface_alive "$cli" "$quest_surface"; then
-    "$cli" close-surface --surface "$quest_surface" >/dev/null 2>&1 || true
-  fi
+  close_cmux_surface_if_vibemud "$cli" "$quest_surface"
   rm -f "$quest_state_file"
 }
 
@@ -1193,6 +1237,27 @@ discover_tmux_hud_pane() {
   return 1
 }
 
+tmux_pane_has_vibemud() {
+  local pane_id="${1:-}" metadata screen
+  pane_exists "$pane_id" || return 1
+  metadata="$(tmux display-message -p -t "$pane_id" '#{pane_current_command}	#{pane_title}' 2>/dev/null || true)"
+  if printf '%s\n' "$metadata" | grep -Eq '(^|	)(vibemud|vibemud-hud|vibemud-runtime)($|	)|VibeMUD|AUTO-HUNT'; then
+    return 0
+  fi
+  screen="$(tmux capture-pane -p -t "$pane_id" -S -16 2>/dev/null || true)"
+  printf '%s\n' "$screen" | grep -Eq 'VibeMUD|AUTO-HUNT|GAME / AUTO-HUNT|상세 능력치|자동 사냥|DAILY QUESTS|일일 퀘스트'
+}
+
+kill_tmux_pane_if_vibemud() {
+  local pane_id="${1:-}" current
+  pane_exists "$pane_id" || return 0
+  current="$(current_tmux_pane || true)"
+  [[ -n "$current" && "$pane_id" == "$current" ]] && return 0
+  if tmux_pane_has_vibemud "$pane_id"; then
+    tmux kill-pane -t "$pane_id" >/dev/null 2>&1 || true
+  fi
+}
+
 applescript_quote() {
   local value="$1"
   value="${value//\\/\\\\}"
@@ -1238,7 +1303,7 @@ end tell
 return ""
 APPLESCRIPT
 )"
-    if printf '%s\n' "$title" | grep -Eq 'VibeMUD|AUTO-HUNT|HUD'; then
+    if printf '%s\n' "$title" | grep -Eq 'VibeMUD|AUTO-HUNT'; then
       return 0
     fi
     sleep 0.35
@@ -1368,7 +1433,6 @@ open_ghostty_panel() {
       echo "VibeMUD HUD is already running in Ghostty terminal ${existing}."
       return 0
     fi
-    close_ghostty_panel
   fi
   rm -f "$state_file"
 
@@ -1408,7 +1472,7 @@ close_ghostty_panel() {
   local state_file terminal_id quoted_terminal_id
   state_file="$(ghostty_panel_state_file)"
   terminal_id="$(cat "$state_file" 2>/dev/null || true)"
-  if [[ -n "$terminal_id" ]]; then
+  if [[ -n "$terminal_id" ]] && ghostty_terminal_has_hud "$terminal_id"; then
     quoted_terminal_id="$(applescript_quote "$terminal_id")"
     osascript <<APPLESCRIPT >/dev/null 2>&1 || true
 set targetId to $quoted_terminal_id
@@ -1430,7 +1494,7 @@ open_tmux_panel() {
     return 1
   fi
   tmux_context_available || return 1
-  local home_dir state_file existing panel_cmd pane_id quoted_path quoted_home quoted_vibemud lines
+  local home_dir state_file existing panel_cmd pane_id quoted_path quoted_home vibemud_bin quoted_vibemud lines
   local target_pane split_target=()
   target_pane="$(current_tmux_pane || true)"
   if [[ -n "$target_pane" ]]; then
@@ -1443,14 +1507,19 @@ open_tmux_panel() {
   state_file="$(panel_state_file)"
   existing="$(cat "$state_file" 2>/dev/null || true)"
   if pane_exists "$existing"; then
-    tmux display-message "VibeMUD HUD panel already running in $existing"
-    return 0
+    if tmux_pane_has_vibemud "$existing"; then
+      tmux display-message "VibeMUD HUD panel already running in $existing"
+      return 0
+    fi
+    rm -f "$state_file"
   fi
   quoted_path="$(shell_quote "$PATH")"
   quoted_home="$(shell_quote "$home_dir")"
-  quoted_vibemud="$(shell_quote "$(resolve_binary vibemud)")" || return 1
+  vibemud_bin="$(resolve_binary vibemud)" || return 1
+  [[ -n "$vibemud_bin" ]] || return 1
+  quoted_vibemud="$(shell_quote "$vibemud_bin")"
   lines="$(message_printline)"
-  panel_cmd="export PATH=$quoted_path; export VIBEMUD_HOME=$quoted_home; printf '\033]2;VibeMUD HUD\033\\'; exec $quoted_vibemud hud --panel --refresh 1 --log-lines ${lines}"
+  panel_cmd="export PATH=$quoted_path; export VIBEMUD_HOME=$quoted_home; printf '\033]2;VibeMUD HUD\033\\'; echo 'Starting VibeMUD HUD...'; exec $quoted_vibemud hud --panel --refresh 1 --log-lines ${lines}"
   pane_id="$(tmux split-window "${split_target[@]}" -h -p 40 -d -P -F '#{pane_id}' "$panel_cmd")"
   printf '%s\n' "$pane_id" > "$state_file"
   tmux display-message "VibeMUD HUD panel opened in $pane_id (right 40%)"
@@ -1464,15 +1533,11 @@ close_tmux_panel() {
   local state_file pane_id quest_state_file quest_pane_id
   state_file="$(panel_state_file)"
   pane_id="$(cat "$state_file" 2>/dev/null || true)"
-  if pane_exists "$pane_id"; then
-    tmux kill-pane -t "$pane_id" || true
-  fi
+  kill_tmux_pane_if_vibemud "$pane_id"
   rm -f "$state_file"
   quest_state_file="$(quest_pane_state_file)"
   quest_pane_id="$(cat "$quest_state_file" 2>/dev/null || true)"
-  if pane_exists "$quest_pane_id"; then
-    tmux kill-pane -t "$quest_pane_id" || true
-  fi
+  kill_tmux_pane_if_vibemud "$quest_pane_id"
   rm -f "$quest_state_file"
 }
 
@@ -2629,9 +2694,8 @@ open_map_selector_pane() {
   home_dir="$(vibemud_home_dir)"
   state_file="$(panel_state_file)"
   existing="$(cat "$state_file" 2>/dev/null || true)"
-  if pane_exists "$existing"; then
-    tmux kill-pane -t "$existing" >/dev/null 2>&1 || true
-  fi
+  kill_tmux_pane_if_vibemud "$existing"
+  rm -f "$state_file"
   quoted_path="$(shell_quote "$PATH")"
   quoted_home="$(shell_quote "$home_dir")"
   quoted_script="$(shell_quote "$script_path")"
@@ -2739,9 +2803,8 @@ open_stats_selector_pane() {
   home_dir="$(vibemud_home_dir)"
   state_file="$(panel_state_file)"
   existing="$(cat "$state_file" 2>/dev/null || true)"
-  if pane_exists "$existing"; then
-    tmux kill-pane -t "$existing" >/dev/null 2>&1 || true
-  fi
+  kill_tmux_pane_if_vibemud "$existing"
+  rm -f "$state_file"
   quoted_path="$(shell_quote "$PATH")"
   quoted_home="$(shell_quote "$home_dir")"
   quoted_script="$(shell_quote "$script_path")"
@@ -3033,9 +3096,8 @@ open_settings_selector_pane() {
   home_dir="$(vibemud_home_dir)"
   state_file="$(panel_state_file)"
   existing="$(cat "$state_file" 2>/dev/null || true)"
-  if pane_exists "$existing"; then
-    tmux kill-pane -t "$existing" >/dev/null 2>&1 || true
-  fi
+  kill_tmux_pane_if_vibemud "$existing"
+  rm -f "$state_file"
   quoted_path="$(shell_quote "$PATH")"
   quoted_home="$(shell_quote "$home_dir")"
   quoted_script="$(shell_quote "$script_path")"
@@ -3066,9 +3128,8 @@ open_quest_selector_pane() {
   home_dir="$(vibemud_home_dir)"
   state_file="$(panel_state_file)"
   existing="$(cat "$state_file" 2>/dev/null || true)"
-  if pane_exists "$existing"; then
-    tmux kill-pane -t "$existing" >/dev/null 2>&1 || true
-  fi
+  kill_tmux_pane_if_vibemud "$existing"
+  rm -f "$state_file"
   quoted_path="$(shell_quote "$PATH")"
   quoted_home="$(shell_quote "$home_dir")"
   quoted_script="$(shell_quote "$script_path")"
