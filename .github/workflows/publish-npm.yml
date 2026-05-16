@@ -55,7 +55,7 @@ jobs:
           version="$(node -p "require('./npm/package.json').version")"
           test "$RELEASE_TAG" = "v$version"
           node npm/scripts/check-release-metadata.js
-          npm --version | node -e "const semver=process.stdin.read().trim().split('.').map(Number); if (semver[0] < 11 || (semver[0] === 11 && semver[1] < 5)) process.exit(1);"
+          npm --version | node -e "const fs=require('fs'); const semver=fs.readFileSync(0,'utf8').trim().split('.').map(Number); if (semver[0] < 11 || (semver[0] === 11 && semver[1] < 5)) process.exit(1);"
           tag_sha="$(git rev-parse HEAD)"
           resolved_tag_sha="$(git rev-list -n 1 "refs/tags/$RELEASE_TAG")"
           test "$tag_sha" = "$resolved_tag_sha"
