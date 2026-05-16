@@ -137,9 +137,56 @@ jobs:
         run: |
           set -euo pipefail
           shopt -s nullglob
+
+          version="${{ needs.guard.outputs.version }}"
           native_packages=(dist/npm/@vibemud/native-*)
-          test "${#native_packages[@]}" -gt 0
+          test "${#native_packages[@]}" -eq 6
+
+          package_name() {
+            node -p "require('./$1/package.json').name"
+          }
+
+          registry_has_version() {
+            local name="$1"
+            npm view "${name}@${version}" version >/dev/null 2>&1
+          }
+
+          wait_for_registry_version() {
+            local name="$1"
+            local attempt
+            for attempt in {1..12}; do
+              if registry_has_version "$name"; then
+                return 0
+              fi
+              sleep 5
+            done
+            echo "::error::${name}@${version} was published but is not visible from npm view yet"
+            return 1
+          }
+
           for pkg in "${native_packages[@]}"; do
+            name="$(package_name "$pkg")"
+            if registry_has_version "$name"; then
+              echo "::notice::${name}@${version} already exists; skipping native publish"
+              continue
+            fi
+            echo "Publishing ${name}@${version}"
             (cd "$pkg" && npm publish --access public --provenance)
+            wait_for_registry_version "$name"
           done
+
+          for pkg in "${native_packages[@]}"; do
+            name="$(package_name "$pkg")"
+            if ! registry_has_version "$name"; then
+              echo "::error::Native package ${name}@${version} is missing; refusing to publish root vibemud"
+              exit 1
+            fi
+          done
+
+          root_name="$(package_name dist/npm/vibemud)"
+          if registry_has_version "$root_name"; then
+            echo "::notice::${root_name}@${version} already exists; skipping root publish"
+            exit 0
+          fi
           (cd dist/npm/vibemud && npm publish --provenance)
+          wait_for_registry_version "$root_name"
