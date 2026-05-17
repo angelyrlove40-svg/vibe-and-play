@@ -171,11 +171,11 @@ jobs:
           wait_for_registry_version() {
             local name="$1"
             local attempt
-            for attempt in {1..12}; do
+            for attempt in {1..60}; do
               if registry_has_version "$name"; then
                 return 0
               fi
-              sleep 5
+              sleep 10
             done
             echo "::error::${name}@${version} was published but is not visible from npm view yet"
             return 1
