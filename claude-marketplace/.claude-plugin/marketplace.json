@@ -5,7 +5,7 @@
   },
   "metadata": {
     "description": "VibeMUD 방치형 RPG 플러그인을 로컬 Claude Code에서 사용하기 위한 마켓플레이스",
-    "version": "0.1.26"
+    "version": "0.1.27"
   },
   "plugins": [
     {

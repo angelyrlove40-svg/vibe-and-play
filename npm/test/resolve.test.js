@@ -72,6 +72,42 @@ test('resolveBin reports a useful error when no binary exists', () => {
   );
 });
 
+
+test('postinstall marks optional package binaries executable', { skip: process.platform === 'win32' }, () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'vibemud-postinstall-chmod-'));
+  const pkgRoot = path.join(root, 'package');
+  fs.mkdirSync(path.join(pkgRoot, 'bin'), { recursive: true });
+  fs.mkdirSync(path.join(pkgRoot, 'scripts'), { recursive: true });
+  fs.copyFileSync(path.join(__dirname, '..', 'bin', 'resolve.js'), path.join(pkgRoot, 'bin', 'resolve.js'));
+  fs.copyFileSync(
+    path.join(__dirname, '..', 'scripts', 'postinstall.js'),
+    path.join(pkgRoot, 'scripts', 'postinstall.js')
+  );
+
+  const optionalPkg = packageNameFor();
+  assert.ok(optionalPkg, 'current platform must have an optional package mapping');
+  const optionalRoot = path.join(pkgRoot, 'node_modules', ...optionalPkg.split('/'));
+  fs.mkdirSync(path.join(optionalRoot, 'bin'), { recursive: true });
+  fs.writeFileSync(path.join(optionalRoot, 'package.json'), JSON.stringify({ name: optionalPkg, version: '0.0.0' }));
+  for (const bin of ['vibemud', 'mudctl', 'vibemud-runtime', 'vibemud-hud']) {
+    const file = path.join(optionalRoot, 'bin', bin);
+    touch(file);
+    fs.chmodSync(file, 0o644);
+  }
+
+  const result = spawnSync(process.execPath, [path.join(pkgRoot, 'scripts', 'postinstall.js')], {
+    cwd: root,
+    env: { ...process.env },
+    encoding: 'utf8',
+  });
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  for (const bin of ['vibemud', 'mudctl', 'vibemud-runtime', 'vibemud-hud']) {
+    const mode = fs.statSync(path.join(optionalRoot, 'bin', bin)).mode;
+    assert.equal(mode & 0o111, 0o111, `${bin} should be executable`);
+  }
+});
+
 test('postinstall fails instead of installing a package without native binaries', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'vibemud-postinstall-missing-'));
   const pkg = path.join(root, 'package');

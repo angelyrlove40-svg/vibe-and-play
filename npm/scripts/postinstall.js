@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-const { existsSync } = require('node:fs');
+const { chmodSync, existsSync, statSync } = require('node:fs');
 const { spawnSync } = require('node:child_process');
 const path = require('node:path');
 const { resolveBin, packageNameFor } = require('../bin/resolve');
@@ -9,9 +9,16 @@ const cargoToml = path.join(repoRoot, 'Cargo.toml');
 const packageRoot = path.resolve(__dirname, '..');
 
 const requiredBins = ['vibemud', 'mudctl', 'vibemud-runtime', 'vibemud-hud'];
+function ensureExecutable(file) {
+  if (process.platform === 'win32') return;
+  const mode = statSync(file).mode;
+  if ((mode & 0o111) === 0o111) return;
+  chmodSync(file, mode | 0o755);
+}
+
 try {
   for (const bin of requiredBins) {
-    resolveBin(bin, { includeLocalTargets: false, packageRoot });
+    ensureExecutable(resolveBin(bin, { includeLocalTargets: false, packageRoot }));
   }
   process.exit(0);
 } catch (_) {

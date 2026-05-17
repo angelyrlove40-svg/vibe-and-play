@@ -38,6 +38,8 @@ for (const pack of packs) {
     }
   }
   if (pack.name && pack.name.startsWith('@vibemud/native-')) {
+    const hasPostinstall = files.some((file) => file === 'scripts/postinstall.js' || file.endsWith('/scripts/postinstall.js'));
+    if (!hasPostinstall) errors.push(`${pack.name}: missing native executable-permission postinstall`);
     for (const bin of binaryNames) {
       const hasBinary = files.some((file) => file === `bin/${bin}` || file === `bin/${bin}.exe` || file.endsWith(`/bin/${bin}`) || file.endsWith(`/bin/${bin}.exe`));
       if (!hasBinary) errors.push(`${pack.name}: missing native binary ${bin}`);
