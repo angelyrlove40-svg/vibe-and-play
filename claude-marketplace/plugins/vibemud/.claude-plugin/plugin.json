@@ -1,7 +1,7 @@
 {
   "name": "vibemud",
   "description": "Claude Code에서 /mud 명령으로 로컬 VibeMUD RPG를 조작하는 한국어 중심 플러그인입니다.",
-  "version": "0.1.26",
+  "version": "0.1.27",
   "author": {
     "name": "VibeMUD"
   },

@@ -758,7 +758,7 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 
 [[package]]
 name = "vibemud-cli"
-version = "0.1.26"
+version = "0.1.27"
 dependencies = [
  "anyhow",
  "clap",
@@ -777,7 +777,7 @@ dependencies = [
 
 [[package]]
 name = "vibemud-core"
-version = "0.1.26"
+version = "0.1.27"
 dependencies = [
  "rand",
  "rand_chacha",
@@ -789,7 +789,7 @@ dependencies = [
 
 [[package]]
 name = "vibemud-db"
-version = "0.1.26"
+version = "0.1.27"
 dependencies = [
  "anyhow",
  "rusqlite",
@@ -805,21 +805,21 @@ dependencies = [
 
 [[package]]
 name = "vibemud-hud"
-version = "0.1.26"
+version = "0.1.27"
 dependencies = [
  "vibemud-core",
 ]
 
 [[package]]
 name = "vibemud-integrations"
-version = "0.1.26"
+version = "0.1.27"
 dependencies = [
  "vibemud-core",
 ]
 
 [[package]]
 name = "vibemud-runtime"
-version = "0.1.26"
+version = "0.1.27"
 dependencies = [
  "anyhow",
  "rusqlite",

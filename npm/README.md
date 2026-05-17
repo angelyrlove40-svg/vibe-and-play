@@ -9,7 +9,7 @@ VibeMUD는 개발자 터미널 옆에서 돌아가는 **로컬 방치형 MUD/RPG
 
 ## 설치
 
-2026-05-16 확인 기준 npm `latest`는 **`vibemud@0.1.25` macOS Apple Silicon(darwin/arm64) host-only preview**입니다. 이 package source는 다음 배포 후보(`0.1.26`)이며, multi-platform `latest`는 matching `@vibemud/native-*` optional package가 먼저 publish된 뒤에만 배포합니다.
+2026-05-17 확인 기준 npm `latest`는 **`vibemud@0.1.26` multi-platform release**입니다. 이 package source는 native 실행 권한 보강을 포함한 다음 배포 후보(`0.1.27`)이며, multi-platform `latest`는 matching `@vibemud/native-*` optional package가 먼저 publish된 뒤에만 배포합니다.
 
 Repository metadata는 `https://github.com/angelyrlove40-svg/vibe-and-play`를 기준으로 유지합니다.
 
