@@ -7,7 +7,7 @@ VibeMUD is a Rust-based local idle MUD/RPG that runs beside Claude Code as a sid
 - Primary supported integration: Claude Code plugin slash commands: `/vibemud:mud ...` and `/mud ...`.
 - Verified pane targets: tmux, cmux, and macOS Ghostty.
 - Unsupported unless fresh smoke evidence and maintainer approval exist: Codex `$mud`, Codex hook installers/session setup, iTerm2 native automation, and `~mud` routing.
-- Source/package version in this repo is `0.1.26`; npm `latest` checked on 2026-05-16 is `vibemud@0.1.25`.
+- Source/package version in this repo is `0.1.27`; npm `latest` checked on 2026-05-18 is `vibemud@0.1.27`.
 
 Keep the public quick start centered on:
 
@@ -20,6 +20,13 @@ Keep the public quick start centered on:
 /vibemud:mud set
 /vibemud:mud end
 ```
+
+## npm release status
+
+- Public install path: `npm install -g vibemud` or explicit `vibemud@latest`; do not recommend pinning `0.1.26`.
+- `0.1.27` is the current fixed multi-platform npm release with all six `@vibemud/native-*` packages published.
+- `0.1.26` was published but had a native executable permission issue on macOS installs (`EACCES` from 0644 binaries); treat it as superseded.
+- Preserve native/root postinstall executable-bit repair and tests unless a registry install smoke proves they are no longer needed.
 
 ## Product and privacy contract
 

@@ -16,7 +16,7 @@ Thanks for helping make VibeMUD a better local sidecar RPG for developer termina
 - User-facing quick start is Claude Code only: `/vibemud:mud ...`.
 - Verified pane targets are tmux, cmux, and macOS Ghostty.
 - Codex and iTerm2 are unsupported until fresh smoke evidence and maintainer approval change the public claim.
-- npm `latest` is `vibemud@0.1.26` as of 2026-05-17; repo package source is the `0.1.27` executable-permission fix candidate.
+- npm `latest` is `vibemud@0.1.27` as of 2026-05-18; this is the fixed multi-platform release.
 
 ## Local checks
 

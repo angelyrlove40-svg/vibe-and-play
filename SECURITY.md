@@ -2,7 +2,7 @@
 
 ## Supported versions
 
-VibeMUD is pre-1.0. Security fixes target the latest `main` branch and the latest published npm release. As of 2026-05-17, npm `latest` is `vibemud@0.1.26`; repository package metadata is prepared for the `0.1.27` executable-permission fix candidate.
+VibeMUD is pre-1.0. Security fixes target the latest `main` branch and the latest published npm release. As of 2026-05-18, npm `latest` is `vibemud@0.1.27`; security fixes target `main` and the latest published npm release.
 
 ## Reporting a vulnerability
 
