@@ -23,5 +23,9 @@
   },
   "libc": [
     "glibc"
-  ]
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/angelyrlove40-svg/vibe-and-play"
+  }
 }

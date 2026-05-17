@@ -20,5 +20,9 @@
   },
   "vibemud": {
     "target": "x86_64-pc-windows-msvc"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/angelyrlove40-svg/vibe-and-play"
   }
 }

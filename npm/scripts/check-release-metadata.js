@@ -10,6 +10,7 @@ const cargoVersion = /\[workspace\.package\][\s\S]*?version\s*=\s*"([^"]+)"/.exe
 const npmPkg = readJson('npm/package.json');
 const pluginPkg = readJson('claude-marketplace/plugins/vibemud/.claude-plugin/plugin.json');
 const rootMarketplacePath = path.join(ROOT, '.claude-plugin/marketplace.json');
+const expectedRepositoryUrl = 'https://github.com/angelyrlove40-svg/vibe-and-play';
 
 function expect(condition, message) {
   if (!condition) errors.push(message);
@@ -35,6 +36,10 @@ for (const pkgPath of findPackageJsons(path.join(ROOT, 'npm/platform-packages'))
   expect(pkg.version === cargoVersion, `${path.relative(ROOT, pkgPath)} version ${pkg.version} != Cargo ${cargoVersion}`);
   if (pkg.name.startsWith('@')) {
     expect(pkg.publishConfig?.access === 'public', `${pkg.name} must set publishConfig.access=public`);
+    expect(
+      pkg.repository?.url === expectedRepositoryUrl,
+      `${pkg.name} repository.url must be ${expectedRepositoryUrl} for npm provenance`
+    );
   }
 }
 if (npmPkg.name.startsWith('@')) {
